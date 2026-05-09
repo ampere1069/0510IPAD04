@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SMC 系統崩潰硬體異常分析</title>
+  <!-- 載入 Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes scan {
+      0% { top: -40%; }
+      100% { top: 100%; }
+    }
+    @keyframes spin-slow {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    @keyframes spin-reverse {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(-360deg); }
+    }
+    @keyframes breath {
+      0%, 100% { opacity: 0.8; filter: drop-shadow(0 0 15px rgba(14, 165, 233, 0.4)); }
+      50% { opacity: 1; filter: drop-shadow(0 0 35px rgba(14, 165, 233, 0.9)); }
+    }
+    .animate-scan { animation: scan 3s ease-in-out infinite; }
+    .animate-spin-slow { animation: spin-slow 8s linear infinite; }
+    .animate-spin-reverse { animation: spin-reverse 5s linear infinite; }
+    .animate-breath { animation: breath 3s ease-in-out infinite; }
+    
+    /* 隱藏滾動條但保留滾動功能，提升沉浸感 */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+  </style>
+</head>
+<body class="fixed inset-0 w-full h-full bg-[#050b14] text-slate-100 font-sans overflow-hidden selection:bg-sky-500/30">
+
+  <!-- 底部導覽列 -->
+  <div class="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-6 py-3 bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-full shadow-[0_8px_32px_rgba(0,0,0,0.8)]">
+    <button id="prevBtn" onclick="goTo(currentSlide - 1)" class="text-white/50 hover:text-sky-400 transition-colors px-2 text-xl pb-1" disabled>&#8592;</button>
+    <div class="flex gap-3 items-center">
+      <div onclick="goTo(0)" class="nav-dot cursor-pointer transition-all duration-300 rounded-full bg-sky-400 w-6 h-2 shadow-[0_0_10px_rgba(56,189,248,0.8)]"></div>
+      <div onclick="goTo(1)" class="nav-dot cursor-pointer transition-all duration-300 rounded-full bg-white/20 w-2 h-2 hover:bg-white/50"></div>
+      <div onclick="goTo(2)" class="nav-dot cursor-pointer transition-all duration-300 rounded-full bg-white/20 w-2 h-2 hover:bg-white/50"></div>
+      <div onclick="goTo(3)" class="nav-dot cursor-pointer transition-all duration-300 rounded-full bg-white/20 w-2 h-2 hover:bg-white/50"></div>
+    </div>
+    <button id="nextBtn" onclick="goTo(currentSlide + 1)" class="text-white/50 hover:text-sky-400 transition-colors px-2 text-xl pb-1">&#8594;</button>
+  </div>
+
+  <!-- 滿版幻燈片容器 -->
+  <div id="slider" class="flex w-[400vw] h-full transition-transform duration-700 ease-[cubic-bezier(0.77,0,0.175,1)]" style="transform: translateX(0vw)">
+    
+    <!-- ================= SLIDE 1: COVER ================= -->
+    <div class="w-screen h-full relative overflow-y-auto flex flex-col md:flex-row items-center justify-center p-8 md:p-20 gap-10">
+      <!-- 背景特效 -->
+      <div class="absolute inset-0 bg-[linear-gradient(rgba(59,130,246,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(59,130,246,0.03)_1px,transparent_1px)] bg-[size:60px_60px] pointer-events-none"></div>
+      <div class="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] bg-blue-600/20 rounded-full blur-[100px] pointer-events-none"></div>
+      <div class="absolute bottom-[-10%] left-[10%] w-[400px] h-[400px] bg-sky-500/10 rounded-full blur-[80px] pointer-events-none"></div>
+
+      <!-- Left Content -->
+      <div class="flex-1 flex flex-col justify-center z-10 max-w-2xl">
+        <div class="inline-flex items-center gap-3 bg-sky-900/30 border border-sky-500/30 rounded-full px-5 py-2 w-max mb-8">
+          <div class="w-2 h-2 rounded-full bg-sky-400 animate-pulse"></div>
+          <span class="text-sm font-bold tracking-widest text-sky-400 uppercase">硬體診斷報告 · SMC PANIC 分析</span>
+        </div>
+
+        <h1 class="text-5xl md:text-7xl font-black leading-tight mb-6 tracking-tight">
+          iOS SMC<br>
+          <span class="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-blue-600">系統崩潰</span><br>
+          硬體異常分析
+        </h1>
+
+        <p class="text-lg md:text-xl text-white/50 font-light mb-10 leading-relaxed">
+          設備硬體故障診斷與感測器異常分析<br>
+          報告日期：2026-05-09
+        </p>
+
+        <div class="flex flex-wrap gap-8 md:gap-12 mb-12">
+          <div class="flex flex-col gap-1">
+            <span class="text-xs tracking-[0.2em] text-white/40 uppercase font-bold">分析範圍</span>
+            <span class="text-lg text-white/90 font-medium">2026-05-08 ~ 09</span>
+          </div>
+          <div class="flex flex-col gap-1">
+            <span class="text-xs tracking-[0.2em] text-white/40 uppercase font-bold">崩潰類型</span>
+            <span class="text-lg text-white/90 font-medium">SMC PANIC</span>
+          </div>
+          <div class="flex flex-col gap-1">
+            <span class="text-xs tracking-[0.2em] text-white/40 uppercase font-bold">診斷結論</span>
+            <span class="text-lg text-emerald-400 font-bold drop-shadow-[0_0_10px_rgba(52,211,153,0.3)]">100% 硬體損壞</span>
+          </div>
+        </div>
+
+        <div class="bg-gradient-to-br from-amber-500/10 to-amber-500/5 border border-amber-500/20 border-l-4 border-l-amber-500 rounded-lg p-6 max-w-xl backdrop-blur-md">
+          <div class="text-xs font-bold tracking-[0.15em] text-amber-500 uppercase mb-2 flex items-center gap-2">
+            <span>⚡</span> 關鍵結論
+          </div>
+          <div class="text-base text-white/80 leading-relaxed">
+            充電尾插排線短路，導致 Prs0 氣壓感測器、mic1 底部麥克風與 TG0B 電池溫度感測器三項連鎖失聯，軟體因素已 100% 排除。
+          </div>
+        </div>
+      </div>
+
+      <!-- Center Image -->
+      <div class="w-full md:w-[400px] shrink-0 z-10 flex justify-center">
+        <div class="relative w-full aspect-[4/5] rounded-2xl overflow-hidden border border-sky-500/30 shadow-[0_0_0_1px_rgba(14,165,233,0.1),0_24px_64px_rgba(0,0,0,0.5),inset_0_0_40px_rgba(10,31,60,0.5)] bg-[#050f23]">
+          <!-- Corners -->
+          <div class="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-sky-400 rounded-tl-sm z-20"></div>
+          <div class="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-sky-400 rounded-tr-sm z-20"></div>
+          <div class="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-sky-400 rounded-bl-sm z-20"></div>
+          <div class="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-sky-400 rounded-br-sm z-20"></div>
+          
+          <img id="deviceImg" src="https://ampere1069.github.io/images/S__16932866.jpg" alt="Device" class="w-full h-full object-contain filter brightness-90 contrast-110" />
+          
+          <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#0a1f3c] to-transparent pt-12 pb-4 px-4 text-center">
+            <span class="text-xs font-bold text-white/70 tracking-widest uppercase">設備診斷實況</span>
+          </div>
+          <!-- Scanner Line -->
+          <div class="absolute left-0 w-full h-[40%] bg-gradient-to-b from-transparent via-sky-400/20 to-transparent animate-scan pointer-events-none"></div>
+        </div>
+      </div>
+
+      <!-- Right Stats -->
+      <div class="flex-1 max-w-sm flex flex-col gap-4 z-10 w-full">
+        <div class="group bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-6 relative overflow-hidden transition-all hover:bg-white/10 hover:border-sky-500/30 hover:translate-x-1">
+          <div class="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-red-400 to-red-600"></div>
+          <div class="text-5xl font-black text-red-400 mb-2">27+</div>
+          <div class="text-sm text-white/50 leading-relaxed">強制重啟次數（日誌確認）<br>持續發生中</div>
+        </div>
+        
+        <div class="group bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-6 relative overflow-hidden transition-all hover:bg-white/10 hover:border-sky-500/30 hover:translate-x-1">
+          <div class="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-amber-400 to-orange-500"></div>
+          <div class="text-4xl font-black text-amber-400 mb-2">3 min</div>
+          <div class="text-sm text-white/50 leading-relaxed">標準循環重啟間隔<br>硬體級別故障鐵證特徵</div>
+        </div>
+
+        <div class="h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent my-2"></div>
+
+        <div class="group bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-6 relative overflow-hidden transition-all hover:bg-white/10 hover:border-sky-500/30 hover:translate-x-1">
+          <div class="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-emerald-400 to-emerald-600"></div>
+          <div class="text-4xl font-black text-emerald-400 mb-2">3</div>
+          <div class="text-sm text-white/50 leading-relaxed">受影響感測器數量<br>Prs0 · mic1 · TG0B</div>
+        </div>
+
+        <div class="group bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-6 relative overflow-hidden transition-all hover:bg-white/10 hover:border-sky-500/30 hover:translate-x-1">
+          <div class="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-purple-400 to-purple-600"></div>
+          <div class="text-4xl font-black text-purple-400 mb-2">0%</div>
+          <div class="text-sm text-white/50 leading-relaxed">軟體因素佔比<br>完全排除，屬實體損壞</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= SLIDE 2: LOGIC VIZ ================= -->
+    <div class="w-screen h-full relative overflow-y-auto flex flex-col">
+      <div class="absolute inset-0 bg-slate-950 pointer-events-none">
+         <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top,#1e3a8a_0%,transparent_70%)] opacity-30"></div>
+      </div>
+      
+      <div class="relative z-10 px-10 pt-10 pb-6 flex items-end justify-between shrink-0">
+        <div>
+          <h2 class="text-3xl font-bold tracking-wider text-white">邏輯視覺化分析</h2>
+          <p class="text-sm text-white/40 tracking-[0.2em] mt-1 uppercase">Logical Visualization · 概念 · 流程 · 結構</p>
+        </div>
+        <div class="text-xs text-white/30 tracking-widest border border-white/10 px-4 py-1.5 rounded bg-black/20 backdrop-blur">PAGE 02 / 04</div>
+      </div>
+
+      <div class="relative z-10 flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 px-10 pb-6">
+        
+        <!-- Cell 1: Gears -->
+        <div class="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 flex flex-col items-center hover:bg-white/10 hover:border-sky-500/40 transition-all shadow-xl group">
+          <h3 class="text-lg font-bold tracking-widest text-sky-400 mb-2">⚙ 齒輪模型</h3>
+          <p class="text-xs text-white/40 mb-8 text-center">SMC 運行機制與感測器聯動</p>
+          
+          <div class="relative w-32 h-32 mb-8">
+            <svg viewBox="0 0 130 130" class="w-full h-full drop-shadow-[0_0_15px_rgba(56,189,248,0.3)]">
+              <g class="animate-spin-slow" style="transform-origin: 55px 55px">
+                <circle cx="55" cy="55" r="22" fill="none" stroke="#38bdf8" stroke-width="8"/>
+                <circle cx="55" cy="55" r="10" fill="#38bdf8"/>
+                <rect x="50" y="27" width="10" height="8" rx="2" fill="#38bdf8"/>
+                <rect x="50" y="75" width="10" height="8" rx="2" fill="#38bdf8"/>
+                <rect x="27" y="50" width="8" height="10" rx="2" fill="#38bdf8"/>
+                <rect x="75" y="50" width="8" height="10" rx="2" fill="#38bdf8"/>
+                <rect x="34" y="34" width="8" height="8" rx="2" fill="#38bdf8" transform="rotate(45 38 38)"/>
+                <rect x="68" y="34" width="8" height="8" rx="2" fill="#38bdf8" transform="rotate(45 72 38)"/>
+                <rect x="34" y="68" width="8" height="8" rx="2" fill="#38bdf8" transform="rotate(45 38 72)"/>
+                <rect x="68" y="68" width="8" height="8" rx="2" fill="#38bdf8" transform="rotate(45 72 72)"/>
+              </g>
+              <g class="animate-spin-reverse" style="transform-origin: 93px 78px">
+                <circle cx="93" cy="78" r="14" fill="none" stroke="#818cf8" stroke-width="6"/>
+                <circle cx="93" cy="78" r="6" fill="#818cf8"/>
+                <rect x="89" y="58" width="8" height="6" rx="2" fill="#818cf8"/>
+                <rect x="89" y="90" width="8" height="6" rx="2" fill="#818cf8"/>
+                <rect x="73" y="74" width="6" height="8" rx="2" fill="#818cf8"/>
+                <rect x="105" y="74" width="6" height="8" rx="2" fill="#818cf8"/>
+              </g>
+              <text x="55" y="114" text-anchor="middle" fill="#e2e8f0" font-size="9" font-weight="700">SMC 控制器</text>
+              <text x="93" y="102" text-anchor="middle" fill="#818cf8" font-size="8">感測器</text>
+            </svg>
+          </div>
+          <p class="text-sm text-white/60 text-center leading-relaxed">
+            SMC 持續監控三路感測器訊號。<br>
+            任一齒輪（感測器）失效，<br>整體機制觸發強制重啟保護。
+          </p>
+        </div>
+
+        <!-- Cell 2: Donut -->
+        <div class="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 flex flex-col items-center hover:bg-white/10 hover:border-sky-500/40 transition-all shadow-xl group">
+          <h3 class="text-lg font-bold tracking-widest text-sky-400 mb-2">◉ 圓環圖模型</h3>
+          <p class="text-xs text-white/40 mb-8 text-center">崩潰代碼構成比例分解</p>
+          
+          <div class="relative w-32 h-32 mb-6">
+            <svg viewBox="0 0 130 130" class="w-full h-full drop-shadow-[0_0_10px_rgba(0,0,0,0.5)]">
+              <circle cx="65" cy="65" r="42" fill="none" stroke="#1e293b" stroke-width="18"/>
+              <circle cx="65" cy="65" r="42" fill="none" stroke="#3b82f6" stroke-width="18" stroke-dasharray="116 148" stroke-dashoffset="37" stroke-linecap="round" class="transition-all duration-500 group-hover:stroke-[22px]"/>
+              <circle cx="65" cy="65" r="42" fill="none" stroke="#0ea5e9" stroke-width="18" stroke-dasharray="79 185" stroke-dashoffset="-79" stroke-linecap="round" class="transition-all duration-500 group-hover:stroke-[22px]"/>
+              <circle cx="65" cy="65" r="42" fill="none" stroke="#f59e0b" stroke-width="18" stroke-dasharray="69 195" stroke-dashoffset="-158" stroke-linecap="round" class="transition-all duration-500 group-hover:stroke-[22px]"/>
+              <text x="65" y="62" text-anchor="middle" fill="#f8fafc" font-size="16" font-weight="900">27+</text>
+              <text x="65" y="78" text-anchor="middle" fill="#94a3b8" font-size="8">總崩潰次數</text>
+            </svg>
+          </div>
+
+          <div class="w-full space-y-3 mt-auto">
+            <div class="flex items-center gap-3 text-sm">
+              <div class="w-3 h-3 rounded bg-blue-500 shadow-[0_0_8px_#3b82f6]"></div>
+              <span class="flex-1 text-white/70">Prs0 氣壓</span>
+              <span class="font-bold text-white">~44%</span>
+            </div>
+            <div class="flex items-center gap-3 text-sm">
+              <div class="w-3 h-3 rounded bg-sky-500 shadow-[0_0_8px_#0ea5e9]"></div>
+              <span class="flex-1 text-white/70">mic1 麥克風</span>
+              <span class="font-bold text-white">~30%</span>
+            </div>
+            <div class="flex items-center gap-3 text-sm">
+              <div class="w-3 h-3 rounded bg-amber-500 shadow-[0_0_8px_#f59e0b]"></div>
+              <span class="flex-1 text-white/70">TG0B 溫度</span>
+              <span class="font-bold text-white">~26%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cell 3: Pyramid -->
+        <div class="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 flex flex-col items-center hover:bg-white/10 hover:border-sky-500/40 transition-all shadow-xl group">
+          <h3 class="text-lg font-bold tracking-widest text-sky-400 mb-2">△ 金字塔模型</h3>
+          <p class="text-xs text-white/40 mb-8 text-center">故障嚴重程度層級</p>
+          
+          <div class="relative w-36 h-32 mb-8">
+            <svg viewBox="0 0 140 130" class="w-full h-full drop-shadow-[0_0_15px_rgba(56,189,248,0.2)]">
+              <polygon points="70,10 95,45 45,45" fill="#1e3a8a" class="transition-all duration-300 hover:brightness-125 cursor-pointer"/>
+              <text x="70" y="35" text-anchor="middle" fill="white" font-size="8" font-weight="700">主機板</text>
+
+              <polygon points="45,48 95,48 110,80 30,80" fill="#2563eb" class="transition-all duration-300 hover:brightness-125 cursor-pointer"/>
+              <text x="70" y="69" text-anchor="middle" fill="white" font-size="8.5" font-weight="700">I2C 總線腐蝕</text>
+
+              <polygon points="30,83 110,83 125,112 15,112" fill="#3b82f6" class="transition-all duration-300 hover:brightness-125 cursor-pointer"/>
+              <text x="70" y="102" text-anchor="middle" fill="white" font-size="8.5" font-weight="700">尾插排線短路 · 三路失聯</text>
+
+              <text x="135" y="32" fill="#94a3b8" font-size="7.5">最嚴重</text>
+              <text x="120" y="67" fill="#94a3b8" font-size="7.5">連帶損壞</text>
+              <text x="130" y="100" fill="#94a3b8" font-size="7.5">根本原因</text>
+            </svg>
+          </div>
+          <p class="text-sm text-white/60 text-center leading-relaxed">
+            根本原因在底層（尾插短路），<br>
+            連帶損壞 I2C 總線，<br>
+            最終擴散至主機板層級。
+          </p>
+        </div>
+
+        <!-- Cell 4: Concentric -->
+        <div class="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 flex flex-col items-center hover:bg-white/10 hover:border-sky-500/40 transition-all shadow-xl group">
+          <h3 class="text-lg font-bold tracking-widest text-sky-400 mb-2">◎ 同心圓模型</h3>
+          <p class="text-xs text-white/40 mb-8 text-center">損壞影響從核心向外擴散</p>
+          
+          <div class="relative w-32 h-32 mb-8">
+            <svg viewBox="0 0 130 130" class="w-full h-full drop-shadow-[0_0_15px_rgba(56,189,248,0.2)]">
+              <circle cx="65" cy="65" r="58" fill="none" stroke="#1e3a8a" stroke-width="1.5" stroke-dasharray="4 3"/>
+              <circle cx="65" cy="65" r="46" fill="none" stroke="#2563eb" stroke-width="2" class="transition-all duration-500 group-hover:stroke-sky-400"/>
+              <circle cx="65" cy="65" r="33" fill="none" stroke="#3b82f6" stroke-width="2.5" class="transition-all duration-500 group-hover:stroke-cyan-400"/>
+              <circle cx="65" cy="65" r="20" fill="none" stroke="#60a5fa" stroke-width="3" class="transition-all duration-500 group-hover:stroke-white"/>
+              <circle cx="65" cy="65" r="10" fill="#93c5fd" class="animate-pulse"/>
+
+              <text x="65" y="68" text-anchor="middle" fill="#0f172a" font-size="7" font-weight="900">SMC</text>
+
+              <text x="65" y="38" text-anchor="middle" fill="#60a5fa" font-size="7.5">感測器失聯</text>
+              <text x="65" y="25" text-anchor="middle" fill="#3b82f6" font-size="7">I2C 總線</text>
+              <text x="65" y="13" text-anchor="middle" fill="#2563eb" font-size="7">尾插短路</text>
+              <text x="65" y="4" text-anchor="middle" fill="#1e3a8a" font-size="6.5">主機板損壞</text>
+            </svg>
+          </div>
+          <p class="text-sm text-white/60 text-center leading-relaxed">
+            損壞從 SMC 核心向外輻射，<br>
+            逐層擴大影響範圍，<br>
+            建議儘早截斷擴散鏈。
+          </p>
+        </div>
+      </div>
+
+      <!-- Bottom Flow -->
+      <div class="relative z-10 mx-10 mb-24 shrink-0 bg-slate-900/60 backdrop-blur-md border border-white/10 rounded-2xl p-6 flex items-center justify-between overflow-x-auto shadow-2xl">
+        <!-- Item 1 -->
+        <div class="flex flex-col items-center flex-1 min-w-[100px] bg-gradient-to-t from-red-900/50 to-transparent border-t-2 border-red-500/30 pt-4 rounded-t-lg transition-transform hover:-translate-y-1">
+          <div class="text-3xl mb-2 drop-shadow-md">💧</div>
+          <div class="text-sm font-bold text-white tracking-wide text-center">液體滲入</div>
+          <div class="text-xs text-white/50 mt-1 text-center">尾插座周圍</div>
+        </div>
+        <div class="text-white/20 text-2xl mx-2 shrink-0 pb-6 animate-pulse">→</div>
+        
+        <!-- Item 2 -->
+        <div class="flex flex-col items-center flex-1 min-w-[100px] bg-gradient-to-t from-amber-900/50 to-transparent border-t-2 border-amber-500/30 pt-4 rounded-t-lg transition-transform hover:-translate-y-1">
+          <div class="text-3xl mb-2 drop-shadow-md">⚡</div>
+          <div class="text-sm font-bold text-white tracking-wide text-center">尾插短路</div>
+          <div class="text-xs text-white/50 mt-1 text-center">實體損壞確認</div>
+        </div>
+        <div class="text-white/20 text-2xl mx-2 shrink-0 pb-6 animate-pulse">→</div>
+
+        <!-- Item 3 -->
+        <div class="flex flex-col items-center flex-1 min-w-[100px] bg-gradient-to-t from-blue-900/50 to-transparent border-t-2 border-blue-500/30 pt-4 rounded-t-lg transition-transform hover:-translate-y-1">
+          <div class="text-3xl mb-2 drop-shadow-md">📡</div>
+          <div class="text-sm font-bold text-white tracking-wide text-center">Prs0 / mic1</div>
+          <div class="text-xs text-white/50 mt-1 text-center">訊號中斷</div>
+        </div>
+        <div class="text-white/20 text-2xl mx-2 shrink-0 pb-6 animate-pulse">→</div>
+
+        <!-- Item 4 -->
+        <div class="flex flex-col items-center flex-1 min-w-[100px] bg-gradient-to-t from-indigo-900/50 to-transparent border-t-2 border-indigo-500/30 pt-4 rounded-t-lg transition-transform hover:-translate-y-1">
+          <div class="text-3xl mb-2 drop-shadow-md">🔌</div>
+          <div class="text-sm font-bold text-white tracking-wide text-center">I2C 癱瘓</div>
+          <div class="text-xs text-white/50 mt-1 text-center">連帶通訊損壞</div>
+        </div>
+        <div class="text-white/20 text-2xl mx-2 shrink-0 pb-6 animate-pulse">→</div>
+
+        <!-- Item 5 -->
+        <div class="flex flex-col items-center flex-1 min-w-[100px] bg-gradient-to-t from-orange-900/50 to-transparent border-t-2 border-orange-500/30 pt-4 rounded-t-lg transition-transform hover:-translate-y-1">
+          <div class="text-3xl mb-2 drop-shadow-md">🌡</div>
+          <div class="text-sm font-bold text-white tracking-wide text-center">TG0B 失聯</div>
+          <div class="text-xs text-white/50 mt-1 text-center">電池溫度異常</div>
+        </div>
+        <div class="text-white/20 text-2xl mx-2 shrink-0 pb-6 animate-pulse">→</div>
+
+        <!-- Item 6 -->
+        <div class="flex flex-col items-center flex-1 min-w-[100px] bg-gradient-to-t from-red-900/80 to-transparent border-t-2 border-red-500/50 pt-4 rounded-t-lg transition-transform hover:-translate-y-1">
+          <div class="text-3xl mb-2 drop-shadow-md">🔄</div>
+          <div class="text-sm font-bold text-white tracking-wide text-center">SMC PANIC</div>
+          <div class="text-xs text-white/50 mt-1 text-center">3 分鐘重啟</div>
+        </div>
+        <div class="text-white/20 text-2xl mx-2 shrink-0 pb-6 animate-pulse">→</div>
+
+        <!-- Item 7 -->
+        <div class="flex flex-col items-center flex-1 min-w-[100px] bg-gradient-to-t from-emerald-900/50 to-transparent border-t-2 border-emerald-500/30 pt-4 rounded-t-lg transition-transform hover:-translate-y-1">
+          <div class="text-3xl mb-2 drop-shadow-md">🔧</div>
+          <div class="text-sm font-bold text-white tracking-wide text-center">硬體維修</div>
+          <div class="text-xs text-white/50 mt-1 text-center">送修 AASP</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= SLIDE 3: DATA VIZ ================= -->
+    <div class="w-screen h-full relative overflow-y-auto flex flex-col">
+      <div class="absolute inset-0 bg-[#020617] pointer-events-none">
+        <!-- Grid overlay -->
+        <div class="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:40px_40px]"></div>
+      </div>
+      
+      <div class="relative z-10 px-10 pt-10 pb-6 flex items-end justify-between shrink-0">
+        <div>
+          <h2 class="text-3xl font-bold tracking-wider text-white">數據視覺化</h2>
+          <p class="text-sm text-sky-400/70 tracking-[0.2em] mt-1 uppercase">Data Visualization</p>
+        </div>
+        <div class="text-xs text-white/30 tracking-widest border border-white/10 px-4 py-1.5 rounded bg-white/5 backdrop-blur">PAGE 03 / 04</div>
+      </div>
+
+      <div class="relative z-10 flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 px-10 pb-24">
+        
+        <!-- Pie Chart -->
+        <div class="bg-white/[0.03] backdrop-blur-md border border-white/10 rounded-2xl p-8 flex flex-col hover:border-sky-500/30 transition-all shadow-lg">
+          <h3 class="text-lg font-bold tracking-widest text-white mb-1">崩潰時段比例</h3>
+          <p class="text-xs text-white/40 mb-6">四個時間區間重啟次數</p>
+          <div class="flex items-center gap-6 flex-1">
+            <svg class="w-28 h-28 shrink-0 drop-shadow-[0_0_15px_rgba(0,0,0,0.8)]" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="40" fill="none" stroke="#1e293b" stroke-width="20"/>
+              <circle cx="50" cy="50" r="40" fill="none" stroke="#1e3a8a" stroke-width="20" stroke-dasharray="83 168" stroke-dashoffset="0"/>
+              <circle cx="50" cy="50" r="40" fill="none" stroke="#2563eb" stroke-width="20" stroke-dasharray="65 186" stroke-dashoffset="-83"/>
+              <circle cx="50" cy="50" r="40" fill="none" stroke="#3b82f6" stroke-width="20" stroke-dasharray="37 214" stroke-dashoffset="-148"/>
+              <circle cx="50" cy="50" r="40" fill="none" stroke="#60a5fa" stroke-width="20" stroke-dasharray="65 186" stroke-dashoffset="-185"/>
+              <circle cx="50" cy="50" r="20" fill="#020617"/>
+              <text x="50" y="55" text-anchor="middle" fill="#f8fafc" font-size="14" font-weight="900">27</text>
+            </svg>
+            <div class="flex flex-col gap-3">
+              <div class="flex items-center gap-3">
+                <div class="w-3 h-3 rounded-sm bg-blue-900"></div>
+                <span class="text-sm text-white/70 w-20">05-08 午</span>
+                <span class="text-sm font-bold text-white">9次</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <div class="w-3 h-3 rounded-sm bg-blue-600"></div>
+                <span class="text-sm text-white/70 w-20">05-08 晚</span>
+                <span class="text-sm font-bold text-white">7次</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <div class="w-3 h-3 rounded-sm bg-blue-500"></div>
+                <span class="text-sm text-white/70 w-20">05-09 上午</span>
+                <span class="text-sm font-bold text-white">4次</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <div class="w-3 h-3 rounded-sm bg-blue-400"></div>
+                <span class="text-sm text-white/70 w-20">05-09 下午</span>
+                <span class="text-sm font-bold text-white">7次</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Timeline Bars -->
+        <div class="lg:col-span-2 bg-white/[0.03] backdrop-blur-md border border-white/10 rounded-2xl p-8 flex flex-col hover:border-sky-500/30 transition-all shadow-lg">
+           <h3 class="text-lg font-bold tracking-widest text-white mb-1">崩潰事件時間軸</h3>
+           <p class="text-xs text-white/40 mb-6">各時間區間重啟次數與規律統計</p>
+           <div class="flex flex-col justify-around flex-1 gap-4">
+             
+             <div class="flex items-center gap-4">
+               <div class="text-sm text-white/60 w-36 text-right shrink-0">05-08 13:00~16:47</div>
+               <div class="flex-1 h-4 bg-white/5 rounded-full overflow-hidden">
+                 <div class="h-full rounded-full bg-gradient-to-r from-blue-600 to-blue-400 shadow-[0_0_10px_currentColor]" style="width: 100%; transition: width 1s cubic-bezier(0.34, 1.56, 0.64, 1)"></div>
+               </div>
+               <div class="text-sm font-bold w-10 text-white">9次</div>
+             </div>
+             
+             <div class="flex items-center gap-4">
+               <div class="text-sm text-white/60 w-36 text-right shrink-0">05-08 20:41~21:39</div>
+               <div class="flex-1 h-4 bg-white/5 rounded-full overflow-hidden">
+                 <div class="h-full rounded-full bg-gradient-to-r from-blue-600 to-blue-400 shadow-[0_0_10px_currentColor]" style="width: 78%; transition: width 1s cubic-bezier(0.34, 1.56, 0.64, 1)"></div>
+               </div>
+               <div class="text-sm font-bold w-10 text-white">7次</div>
+             </div>
+             
+             <div class="flex items-center gap-4">
+               <div class="text-sm text-white/60 w-36 text-right shrink-0">05-09 10:02~10:40</div>
+               <div class="flex-1 h-4 bg-white/5 rounded-full overflow-hidden">
+                 <div class="h-full rounded-full bg-gradient-to-r from-blue-600 to-blue-400 shadow-[0_0_10px_currentColor]" style="width: 44%; transition: width 1s cubic-bezier(0.34, 1.56, 0.64, 1)"></div>
+               </div>
+               <div class="text-sm font-bold w-10 text-white">4次</div>
+             </div>
+             
+             <div class="flex items-center gap-4">
+               <div class="text-sm text-white/60 w-36 text-right shrink-0">05-09 15:20~15:33</div>
+               <div class="flex-1 h-4 bg-white/5 rounded-full overflow-hidden">
+                 <div class="h-full rounded-full bg-gradient-to-r from-red-600 to-red-400 shadow-[0_0_10px_currentColor]" style="width: 78%; transition: width 1s cubic-bezier(0.34, 1.56, 0.64, 1)"></div>
+               </div>
+               <div class="text-sm font-bold w-10 text-red-400">7次</div>
+             </div>
+             
+             <div class="flex items-center gap-4">
+               <div class="text-sm font-bold text-sky-400 w-36 text-right shrink-0">累計合計</div>
+               <div class="flex-1 h-4 bg-white/5 rounded-full overflow-hidden">
+                 <div class="h-full rounded-full bg-gradient-to-r from-sky-600 to-cyan-300 shadow-[0_0_10px_currentColor]" style="width: 100%; transition: width 1s cubic-bezier(0.34, 1.56, 0.64, 1)"></div>
+               </div>
+               <div class="text-sm font-bold w-10 text-sky-400 text-base">27+</div>
+             </div>
+             
+           </div>
+        </div>
+
+        <!-- Sensor Table -->
+        <div class="lg:col-span-3 bg-white/[0.03] backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden flex flex-col hover:border-sky-500/30 transition-all shadow-lg">
+          <div class="p-6 pb-4 border-b border-white/10 bg-white/5">
+            <h3 class="text-lg font-bold tracking-widest text-white mb-1">感測器異常代碼表</h3>
+            <p class="text-xs text-white/40">三項連鎖感測器診斷</p>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="bg-black/20 text-white/60 text-sm tracking-wider">
+                  <th class="p-4 pl-8 font-medium">代碼 (CODE)</th>
+                  <th class="p-4 font-medium">名稱 (COMPONENT)</th>
+                  <th class="p-4 font-medium">實體位置 (LOCATION)</th>
+                  <th class="p-4 font-medium">診斷狀態 (STATUS)</th>
+                </tr>
+              </thead>
+              <tbody class="text-white/80 divide-y divide-white/5">
+                <tr class="hover:bg-white/5 transition-colors">
+                  <td class="p-4 pl-8 font-mono font-bold text-sky-400 text-lg">Prs0</td>
+                  <td class="p-4">氣壓感測器</td>
+                  <td class="p-4 text-white/50">尾插排線</td>
+                  <td class="p-4"><span class="bg-red-500/20 text-red-400 border border-red-500/30 px-3 py-1 rounded-full text-xs font-bold tracking-wider">失聯 / 離線</span></td>
+                </tr>
+                <tr class="hover:bg-white/5 transition-colors">
+                  <td class="p-4 pl-8 font-mono font-bold text-sky-400 text-lg">mic1</td>
+                  <td class="p-4">底部麥克風</td>
+                  <td class="p-4 text-white/50">尾插排線</td>
+                  <td class="p-4"><span class="bg-red-500/20 text-red-400 border border-red-500/30 px-3 py-1 rounded-full text-xs font-bold tracking-wider">失聯 / 離線</span></td>
+                </tr>
+                <tr class="hover:bg-white/5 transition-colors">
+                  <td class="p-4 pl-8 font-mono font-bold text-amber-400 text-lg">TG0B</td>
+                  <td class="p-4">電池溫度</td>
+                  <td class="p-4 text-white/50">I2C 總線</td>
+                  <td class="p-4"><span class="bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1 rounded-full text-xs font-bold tracking-wider">連帶受損</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Action Priority -->
+        <div class="lg:col-span-3 bg-white/[0.03] backdrop-blur-md border border-white/10 rounded-2xl p-8 hover:border-sky-500/30 transition-all shadow-lg">
+          <h3 class="text-lg font-bold tracking-widest text-white mb-1">緊急行動建議</h3>
+          <p class="text-xs text-white/40 mb-6">依優先順序執行 (Action Priority)</p>
+          
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="bg-red-950/40 border border-red-900/50 border-l-4 border-l-red-500 rounded-xl p-5 flex gap-4 shadow-inner">
+              <div class="text-3xl drop-shadow-[0_0_10px_rgba(239,68,68,0.5)]">🛑</div>
+              <div>
+                <div class="text-sm font-bold text-red-400 tracking-widest mb-2">第一優先</div>
+                <div class="text-sm text-red-200/80 leading-relaxed">停止軟體修復嘗試，備份「黃金 3 分鐘」內所有重要資料至 iCloud 或電腦</div>
+              </div>
+            </div>
+            <div class="bg-amber-950/40 border border-amber-900/50 border-l-4 border-l-amber-500 rounded-xl p-5 flex gap-4 shadow-inner">
+              <div class="text-3xl drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]">📋</div>
+              <div>
+                <div class="text-sm font-bold text-amber-400 tracking-widest mb-2">第二優先</div>
+                <div class="text-sm text-amber-200/80 leading-relaxed">攜帶本報告，預約 Apple AASP 或直營店送修，告知工程師三項連鎖感測器遺失</div>
+              </div>
+            </div>
+            <div class="bg-emerald-950/40 border border-emerald-900/50 border-l-4 border-l-emerald-500 rounded-xl p-5 flex gap-4 shadow-inner">
+              <div class="text-3xl drop-shadow-[0_0_10px_rgba(16,185,129,0.5)]">🔧</div>
+              <div>
+                <div class="text-sm font-bold text-emerald-400 tracking-widest mb-2">第三優先</div>
+                <div class="text-sm text-emerald-200/80 leading-relaxed">更換尾插排線總成，交叉檢測電池模組與 I2C 總線，解決 TG0B 連帶損壞</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ================= SLIDE 4: MOVIE ENDING ================= -->
+    <div class="w-screen h-full relative overflow-hidden flex flex-col items-center justify-center bg-black z-0">
+      <!-- 高科技動態背景 -->
+      <div class="absolute inset-0 z-0">
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80vw] h-[80vw] md:w-[50vw] md:h-[50vw] bg-[radial-gradient(circle,rgba(14,165,233,0.15)_0%,transparent_70%)] rounded-full animate-breath"></div>
+        <!-- 網格與光束 -->
+        <div class="absolute inset-0 bg-[linear-gradient(rgba(14,165,233,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(14,165,233,0.05)_1px,transparent_1px)] bg-[size:100px_100px] perspective-[1000px] [transform:rotateX(60deg)_translateY(-100px)_scale(2)] opacity-30 pointer-events-none"></div>
+      </div>
+
+      <div class="relative z-10 text-center flex flex-col items-center">
+        <!-- 液態玻璃裝飾線 -->
+        <div class="w-px h-24 bg-gradient-to-b from-transparent via-sky-400 to-transparent mb-8 animate-pulse"></div>
+        
+        <h1 class="text-6xl md:text-8xl lg:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-r from-sky-300 via-blue-500 to-cyan-300 tracking-[0.1em] md:tracking-[0.2em] animate-breath ml-[0.1em] md:ml-[0.2em]">
+          感謝收看
+        </h1>
+        
+        <p class="mt-8 text-lg md:text-2xl text-sky-200/60 tracking-[0.4em] uppercase font-light">
+          SMC System Analysis Complete
+        </p>
+        
+        <div class="w-px h-24 bg-gradient-to-b from-transparent via-sky-400 to-transparent mt-8 animate-pulse"></div>
+      </div>
+      
+      <!-- 掃描線掃過全畫面 -->
+      <div class="absolute top-0 left-0 w-full h-1 shadow-[0_0_20px_2px_rgba(56,189,248,0.7)] bg-sky-400/50 animate-scan z-20 pointer-events-none"></div>
+    </div>
+
+  </div>
+
+  <script>
+    // 幻燈片控制邏輯 (原生 JavaScript)
+    let currentSlide = 0;
+    const totalSlides = 4;
+    const slider = document.getElementById('slider');
+    const dots = document.querySelectorAll('.nav-dot');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+
+    function goTo(n) {
+      if (n < 0 || n >= totalSlides) return;
+      currentSlide = n;
+      
+      // 移動幻燈片
+      slider.style.transform = 'translateX(-' + (currentSlide * 100) + 'vw)';
+      
+      // 更新導覽點樣式
+      dots.forEach((dot, index) => {
+        if (index === currentSlide) {
+          dot.className = 'nav-dot cursor-pointer transition-all duration-300 rounded-full bg-sky-400 w-6 h-2 shadow-[0_0_10px_rgba(56,189,248,0.8)]';
+        } else {
+          dot.className = 'nav-dot cursor-pointer transition-all duration-300 rounded-full bg-white/20 w-2 h-2 hover:bg-white/50';
+        }
+      });
+
+      // 更新上一步按鈕狀態
+      if (currentSlide === 0) {
+        prevBtn.setAttribute('disabled', 'true');
+        prevBtn.classList.replace('hover:text-sky-400', 'opacity-50');
+      } else {
+        prevBtn.removeAttribute('disabled');
+        prevBtn.classList.replace('opacity-50', 'hover:text-sky-400');
+      }
+
+      // 更新下一步按鈕狀態
+      if (currentSlide === totalSlides - 1) {
+        nextBtn.setAttribute('disabled', 'true');
+        nextBtn.classList.replace('hover:text-sky-400', 'opacity-50');
+      } else {
+        nextBtn.removeAttribute('disabled');
+        nextBtn.classList.replace('opacity-50', 'hover:text-sky-400');
+      }
+    }
+
+    // 監聽鍵盤左右方向鍵
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') goTo(currentSlide + 1);
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') goTo(currentSlide - 1);
+    });
+
+    // 處理圖片載入 (透過 Blob 繞過部分 CORS 問題)
+    fetch('https://ampere1069.github.io/images/S__16932866.jpg')
+      .then(r => r.blob())
+      .then(blob => {
+        document.getElementById('deviceImg').src = URL.createObjectURL(blob);
+      })
+      .catch(e => {
+        console.log('Using fallback image url', e);
+        document.getElementById('deviceImg').src = 'https://ampere1069.github.io/images/S__16932866.jpg';
+      });
+
+    // 初始狀態
+    goTo(0);
+  </script>
+</body>
+</html>
